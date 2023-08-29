@@ -19,6 +19,7 @@ import (
 type State struct {
 	iface       string
 	client      *wgctrl.Client
+	PrivateAddr *netip.Prefix
 	OverlayAddr netip.Addr
 	Port        int
 	PrivKey     wgtypes.Key
@@ -28,7 +29,7 @@ type State struct {
 // New creates a new Wesher Wireguard state.
 // The Wireguard keys are generated for every new interface.
 // The interface must later be setup using SetUpInterface.
-func New(iface string, port int, prefix netip.Prefix, name string) (*State, *common.Node, error) {
+func New(iface string, port int, prefix netip.Prefix, privateAddr netip.Prefix, name string) (*State, *common.Node, error) {
 	client, err := wgctrl.New()
 	if err != nil {
 		return nil, nil, fmt.Errorf("instantiating wireguard client: %w", err)
@@ -41,11 +42,12 @@ func New(iface string, port int, prefix netip.Prefix, name string) (*State, *com
 	pubKey := privKey.PublicKey()
 
 	state := State{
-		iface:   iface,
-		client:  client,
-		Port:    port,
-		PrivKey: privKey,
-		PubKey:  pubKey,
+		iface:       iface,
+		client:      client,
+		PrivateAddr: &privateAddr,
+		Port:        port,
+		PrivKey:     privKey,
+		PubKey:      pubKey,
 	}
 	if err := state.assignOverlayAddr(prefix, name); err != nil {
 		return nil, nil, fmt.Errorf("assigning overlay address: %w", err)
@@ -53,6 +55,7 @@ func New(iface string, port int, prefix netip.Prefix, name string) (*State, *com
 
 	node := &common.Node{}
 	node.OverlayAddr = state.OverlayAddr
+	node.PrivateAddr = state.PrivateAddr
 	node.PubKey = state.PubKey.String()
 
 	return &state, node, nil
@@ -156,6 +159,20 @@ func addrToIPNet(addr netip.Addr) *net.IPNet {
 	}
 }
 
+// getCorrectEndpoint determines the correct IP endpoint for a given node based on the state.
+// It returns the private address if it's within the same network as the state's private address;
+// otherwise, it returns the public address.
+func getCorrectEndpoint(state *State, node common.Node) net.IP {
+	if state.PrivateAddr == nil || node.PrivateAddr == nil {
+		return node.Addr
+	}
+	if state.PrivateAddr.Contains(node.PrivateAddr.Addr()) {
+		return node.PrivateAddr.Addr().AsSlice()
+	}
+
+	return node.Addr
+}
+
 func (s *State) nodesToPeerConfigs(nodes []common.Node) ([]wgtypes.PeerConfig, error) {
 	peerCfgs := make([]wgtypes.PeerConfig, len(nodes))
 	for i, node := range nodes {
@@ -163,11 +180,12 @@ func (s *State) nodesToPeerConfigs(nodes []common.Node) ([]wgtypes.PeerConfig, e
 		if err != nil {
 			return nil, fmt.Errorf("parsing wireguard key: %w", err)
 		}
+
 		peerCfgs[i] = wgtypes.PeerConfig{
 			PublicKey:         pubKey,
 			ReplaceAllowedIPs: true,
 			Endpoint: &net.UDPAddr{
-				IP:   node.Addr,
+				IP:   getCorrectEndpoint(s, node),
 				Port: s.Port,
 			},
 			AllowedIPs: []net.IPNet{

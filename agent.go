@@ -23,6 +23,7 @@ type AgentCmd struct {
 	ClusterKey    key          `env:"WESHER_CLUSTER_KEY" help:"shared key for cluster membership; must be 32 bytes base64 encoded; will be generated if not provided"`
 	Join          []string     `env:"WESHER_JOIN" help:"comma separated list of hostnames or IP addresses to existing cluster members; if not provided, will attempt resuming any known state or otherwise wait for further members."`
 	Init          bool         `env:"WESHER_INIT" help:"whether to explicitly (re)initialize the cluster; any known state from previous runs will be forgotten"`
+	PrivateAddr   netip.Prefix `env:"WESHER_PRIVATE_ADDR" help:"IP address in (CIDR format) which other nodes in the same subnet will use. Can save on egress bandwidth in case of multi cloud setups"`
 	BindAddr      string       `env:"WESHER_BIND_ADDR" help:"IP address to bind to for cluster membership traffic (cannot be used with --bind-iface)"`
 	BindIface     string       `env:"WESHER_BIND_IFACE" help:"Interface to bind to for cluster membership traffic (cannot be used with --bind-addr)"`
 	ClusterPort   int          `env:"WESHER_CLUSTER_PORT" help:"port used for membership gossip traffic (both TCP and UDP); must be the same across cluster" default:"7946"`
@@ -84,7 +85,7 @@ func (a *AgentCmd) Run(cli *cli) error {
 	if err != nil {
 		logrus.WithError(err).Fatal("could not create cluster")
 	}
-	wgstate, localNode, err := wg.New(a.Interface, a.WireguardPort, a.OverlayNet, cluster.LocalName)
+	wgstate, localNode, err := wg.New(a.Interface, a.WireguardPort, a.OverlayNet, a.PrivateAddr, cluster.LocalName)
 	if err != nil {
 		logrus.WithError(err).Fatal("could not instantiate wireguard controller")
 	}

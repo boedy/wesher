@@ -12,6 +12,7 @@ import (
 type nodeMeta struct {
 	OverlayAddr netip.Addr
 	PubKey      string
+	PrivateAddr *netip.Prefix
 }
 
 // Node holds the memberlist node structure
